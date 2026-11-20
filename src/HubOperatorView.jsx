@@ -124,14 +124,19 @@ export default function HubOperatorView({ user, onLogout }) {
   return (
     <div className="page">
       <header className="topbar">
-        <div>
-          <h1>{hubName ? hubName : "Hub deliveries"}</h1>
-          <span className="muted">
-            Signed in as {user.name || user.email || user.phone}
-            {updated ? ` \u00B7 updated ${updated.toLocaleTimeString()}` : ""}
-          </span>
+        <div className="brand app-brand">
+          <span className="brand-mark">SW</span>
+          <div>
+            <span className="app-kicker">Smart Waste {"\u00B7"} Hub operator</span>
+            <h1>{hubName ? hubName : "Hub deliveries"}</h1>
+            <span className="muted">
+              Signed in as {user.name || user.email || user.phone}
+              {updated ? ` \u00B7 updated ${updated.toLocaleTimeString()}` : ""}
+            </span>
+          </div>
         </div>
         <div className="actions">
+          <span className="role-pill">Hub operator</span>
           <button className="ghost" onClick={load}>Refresh</button>
           <button className="ghost" onClick={onLogout}>Log out</button>
         </div>
@@ -265,6 +270,16 @@ export default function HubOperatorView({ user, onLogout }) {
           </table>
         </div>
       </Panel>
+
+      <footer className="site-footer">
+        <div className="footer-inner">
+          <div className="footer-contact">
+            <a href="mailto:support@smartwaste.city">support@smartwaste.city</a>
+            <a href="tel:+254700000000">+254 700 000 000</a>
+            <span>Monday to Saturday, 7:00 - 18:00</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

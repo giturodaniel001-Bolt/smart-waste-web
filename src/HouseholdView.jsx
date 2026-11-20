@@ -323,18 +323,27 @@ export default function HouseholdView({ user, onLogout }) {
       : undefined;
   const scheduledAt = pickupDate && pickupTime ? parseSchedule(pickupDate, pickupTime) : null;
   const scheduleLabel = scheduledAt ? fmtDateTime(scheduledAt.toISOString()) : "";
+  const reportCounts = reports.reduce(
+    (counts, r) => ({ ...counts, [r.status]: (counts[r.status] || 0) + 1 }),
+    { open: 0, in_progress: 0, resolved: 0 }
+  );
 
   return (
     <div className="page">
       <header className="topbar">
-        <div>
-          <h1>Hello, {displayName}</h1>
-          <span className="muted">
-            Your Smart Waste account
-            {updated ? ` \u00B7 updated ${updated.toLocaleTimeString()}` : ""}
-          </span>
+        <div className="brand app-brand">
+          <span className="brand-mark">SW</span>
+          <div>
+            <span className="app-kicker">Smart Waste {"\u00B7"} Household</span>
+            <h1>Hello, {displayName}</h1>
+            <span className="muted">
+              Your Smart Waste account
+              {updated ? ` \u00B7 updated ${updated.toLocaleTimeString()}` : ""}
+            </span>
+          </div>
         </div>
         <div className="actions">
+          <span className="role-pill">Household</span>
           <button className="ghost" onClick={load}>Refresh</button>
           <button
             className="avatar-btn"
@@ -534,8 +543,17 @@ export default function HouseholdView({ user, onLogout }) {
               <div className={reportMsg.kind === "ok" ? "notice ok" : "notice error"}>{reportMsg.text}</div>
             ) : null}
             <span className="form-label">Photo of the site</span>
-            <input className="file-input" type="file" accept="image/*" capture="environment" onChange={pickPhoto} />
-            {photoPreview ? <img className="report-preview" src={photoPreview} alt="Selected dumping site" /> : null}
+            <label className={`upload-box${photoPreview ? " has-photo" : ""}`}>
+              <input type="file" accept="image/*" capture="environment" onChange={pickPhoto} />
+              {photoPreview ? (
+                <img className="report-preview" src={photoPreview} alt="Selected dumping site" />
+              ) : (
+                <span className="upload-copy">
+                  <strong>Add a photo</strong>
+                  <span className="muted">Take a picture or choose it from your gallery</span>
+                </span>
+              )}
+            </label>
             <span className="form-label">What did you see?</span>
             <input
               className="text-input"
@@ -550,9 +568,19 @@ export default function HouseholdView({ user, onLogout }) {
               <button type="button" className="chip" onClick={useHomeLocation}>Use my home location</button>
             </div>
             {coords ? (
-              <p className="muted" style={{ marginTop: 0 }}>
-                Location: {coords[0].toFixed(5)}, {coords[1].toFixed(5)}
-              </p>
+              <div className="location-box">
+                <span>Pinned at {coords[0].toFixed(5)}, {coords[1].toFixed(5)}</span>
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => {
+                    setCoords(null);
+                    setLocMsg("");
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
             ) : null}
             {locMsg ? <p className="muted" style={{ marginTop: 0 }}>{locMsg}</p> : null}
             <button type="submit" disabled={reportBusy}>
@@ -562,6 +590,15 @@ export default function HouseholdView({ user, onLogout }) {
         </Panel>
 
         <Panel title="My reports">
+          <div className="mini-counts">
+            {Object.entries(REPORT_STATUS_LABELS).map(([key, label]) => (
+              <span className="mini-count" key={key}>
+                <i style={{ background: REPORT_STATUS_COLORS[key] }} />
+                {label}
+                <strong>{reportCounts[key] || 0}</strong>
+              </span>
+            ))}
+          </div>
             {reports.length ? (
             reports.slice(0, 10).map((r) => (
               <div className="report-row" key={r.id}>

@@ -123,6 +123,7 @@ export const api = {
   changePassword: (body) => request("/api/auth/password/", { method: "POST", body }),
   summary: () => request("/api/stats/summary/"),
   pickups: () => allPages("/api/pickups/"),
+  collectors: () => allPages("/api/collectors/"),
   hubs: () => allPages("/api/hubs/"),
   bins: () => allPages("/api/bins/"),
   binReadings: (id) => request(`/api/bins/${id}/readings/`),
@@ -130,6 +131,8 @@ export const api = {
   rewardsHistory: () => allPages("/api/rewards/history/"),
   createPickup: (body) => request("/api/pickups/", { method: "POST", body }),
   cancelPickup: (id) => request(`/api/pickups/${id}/cancel/`, { method: "POST" }),
+  assignPickup: (id, collector) =>
+    request(`/api/pickups/${id}/assign/`, { method: "POST", body: { collector } }),
   reports: () => allPages("/api/reports/"),
   createReport: (formData) => request("/api/reports/", { method: "POST", formData }),
   setReportStatus: (id, status) => request(`/api/reports/${id}/`, { method: "PATCH", body: { status } }),
