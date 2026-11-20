@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "./api";
 import {
@@ -6,24 +6,21 @@ import {
   fmt, fmtDateTime, wasteList,
 } from "./theme";
 
-const SLOTS = [
-  { label: "Morning", hour: 9 },
-  { label: "Afternoon", hour: 14 },
-];
+function toDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
-// next 3 days x morning/afternoon
-function buildSlots() {
-  const out = [];
-  for (let d = 1; d <= 3; d++) {
-    for (const s of SLOTS) {
-      const date = new Date();
-      date.setDate(date.getDate() + d);
-      date.setHours(s.hour, 0, 0, 0);
-      const day = date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-      out.push({ key: `${d}-${s.label}`, date, label: `${day} \u00B7 ${s.label}` });
-    }
-  }
-  return out;
+function initialsFor(value) {
+  const parts = String(value || "?").trim().split(/\s+/).filter(Boolean).slice(0, 2);
+  return parts.map((part) => part[0]).join("").toUpperCase() || "?";
+}
+
+function parseSchedule(dateValue, timeValue) {
+  const date = new Date(`${dateValue}T${timeValue}`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function binColor(level, status) {
@@ -76,9 +73,9 @@ export default function HouseholdView({ user, onLogout }) {
   const [me, setMe] = useState(user);
 
   // request-a-pickup form
-  const slots = useMemo(buildSlots, []);
   const [types, setTypes] = useState([]);
-  const [slot, setSlot] = useState(null);
+  const [pickupDate, setPickupDate] = useState("");
+  const [pickupTime, setPickupTime] = useState("09:00");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formMsg, setFormMsg] = useState(null);
@@ -105,6 +102,10 @@ export default function HouseholdView({ user, onLogout }) {
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
   const [pwBusy, setPwBusy] = useState(false);
   const [pwMsg, setPwMsg] = useState(null);
+
+  // account drawer
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountTab, setAccountTab] = useState("profile");
 
   useEffect(() => {
     api
@@ -156,22 +157,44 @@ export default function HouseholdView({ user, onLogout }) {
     return () => clearInterval(t);
   }, [load]);
 
+  useEffect(() => {
+    if (!accountOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setAccountOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [accountOpen]);
+
   const toggleType = (value) =>
     setTypes((cur) => (cur.includes(value) ? cur.filter((t) => t !== value) : [...cur, value]));
 
   const submit = async (e) => {
     e.preventDefault();
     if (types.length === 0) return setFormMsg({ kind: "error", text: "Choose at least one type of waste." });
-    if (!slot) return setFormMsg({ kind: "error", text: "Choose when you want the pickup." });
+    if (!pickupDate || !pickupTime) {
+      return setFormMsg({ kind: "error", text: "Choose the date and time you want the pickup." });
+    }
+    const when = parseSchedule(pickupDate, pickupTime);
+    if (!when) return setFormMsg({ kind: "error", text: "Choose a valid date and time." });
+    if (when <= new Date()) {
+      return setFormMsg({ kind: "error", text: "Choose a date and time in the future." });
+    }
     setSubmitting(true);
     try {
       await api.createPickup({
         waste_types: types,
-        scheduled_for: slot.date.toISOString(),
+        scheduled_for: when.toISOString(),
         notes: notes.trim(),
       });
       setTypes([]);
-      setSlot(null);
+      setPickupDate("");
+      setPickupTime("09:00");
       setNotes("");
       setFormMsg({ kind: "ok", text: "Pickup requested. A collector will be assigned soon." });
       await load();
@@ -217,7 +240,7 @@ export default function HouseholdView({ user, onLogout }) {
 
   const useHomeLocation = () => {
     if (me?.latitude == null || me?.longitude == null) {
-      setLocMsg("No home coordinates saved. Add them under Account settings.");
+      setLocMsg("No home coordinates saved. Open your avatar menu to add them.");
       return;
     }
     setCoords([me.latitude, me.longitude]);
@@ -290,12 +313,22 @@ export default function HouseholdView({ user, onLogout }) {
   const active = pickups.filter((p) => p.status === "requested" || p.status === "assigned").length;
   const collectedKg = pickups.reduce((sum, p) => sum + (p.collection ? parseFloat(p.collection.weight_kg) : 0), 0);
   const firstBin = bins[0];
+  const displayName = me?.name || user.name || user.email || user.phone || "Account";
+  const avatarText = initialsFor(displayName);
+  const todayValue = toDateInputValue(new Date());
+  const now = new Date();
+  const minTime =
+    pickupDate === todayValue
+      ? `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+      : undefined;
+  const scheduledAt = pickupDate && pickupTime ? parseSchedule(pickupDate, pickupTime) : null;
+  const scheduleLabel = scheduledAt ? fmtDateTime(scheduledAt.toISOString()) : "";
 
   return (
     <div className="page">
       <header className="topbar">
         <div>
-          <h1>Hello, {me?.name || user.name || user.email || user.phone}</h1>
+          <h1>Hello, {displayName}</h1>
           <span className="muted">
             Your Smart Waste account
             {updated ? ` \u00B7 updated ${updated.toLocaleTimeString()}` : ""}
@@ -303,7 +336,16 @@ export default function HouseholdView({ user, onLogout }) {
         </div>
         <div className="actions">
           <button className="ghost" onClick={load}>Refresh</button>
-          <button className="ghost" onClick={onLogout}>Log out</button>
+          <button
+            className="avatar-btn"
+            type="button"
+            onClick={() => setAccountOpen(true)}
+            aria-label="Open account settings"
+            aria-expanded={accountOpen}
+            title="Account settings"
+          >
+            {avatarText}
+          </button>
         </div>
       </header>
 
@@ -320,6 +362,68 @@ export default function HouseholdView({ user, onLogout }) {
           hint={firstBin ? firstBin.label || firstBin.device_id : "no bin linked"}
         />
       </div>
+
+      <section className="pickup-main">
+        <div className="pickup-head">
+          <p className="eyebrow">Main service</p>
+          <h2>Request a pickup</h2>
+          <p className="muted">Tell us what to collect, then choose the date and time that work for you.</p>
+        </div>
+        <form className="pickup-form" onSubmit={submit}>
+          {formMsg ? (
+            <div className={formMsg.kind === "ok" ? "notice ok" : "notice error"}>{formMsg.text}</div>
+          ) : null}
+          <span className="form-label">What are you putting out?</span>
+          <div className="chips">
+            {Object.entries(WASTE_LABELS).map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                className={types.includes(value) ? "chip chip-on" : "chip"}
+                onClick={() => toggleType(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="form-label">When should we collect?</span>
+          <div className="schedule-fields">
+            <label>
+              Collection date
+              <input
+                type="date"
+                value={pickupDate}
+                min={todayValue}
+                onChange={(e) => setPickupDate(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Preferred time
+              <input
+                type="time"
+                value={pickupTime}
+                min={minTime}
+                step="900"
+                onChange={(e) => setPickupTime(e.target.value)}
+                required
+              />
+            </label>
+          </div>
+          {scheduleLabel ? <p className="schedule-summary">Collection time: {scheduleLabel}</p> : null}
+          <span className="form-label">Anything the collector should know?</span>
+          <input
+            className="text-input"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g. bags are at the gate"
+            maxLength={250}
+          />
+          <button className="pickup-submit" type="submit" disabled={submitting}>
+            {submitting ? "Requesting..." : "Request pickup"}
+          </button>
+        </form>
+      </section>
 
       <div className="hh-grid">
         <Panel title="My smart bin">
@@ -364,89 +468,6 @@ export default function HouseholdView({ user, onLogout }) {
           )}
         </Panel>
 
-        <Panel title="Request a pickup">
-          <form onSubmit={submit}>
-            {formMsg ? (
-              <div className={formMsg.kind === "ok" ? "notice ok" : "notice error"}>{formMsg.text}</div>
-            ) : null}
-            <span className="form-label">What are you putting out?</span>
-            <div className="chips">
-              {Object.entries(WASTE_LABELS).map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  className={types.includes(value) ? "chip chip-on" : "chip"}
-                  onClick={() => toggleType(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <span className="form-label">When should we collect?</span>
-            <div className="chips">
-              {slots.map((s) => (
-                <button
-                  type="button"
-                  key={s.key}
-                  className={slot?.key === s.key ? "chip chip-on" : "chip"}
-                  onClick={() => setSlot(s)}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-            <span className="form-label">Anything the collector should know?</span>
-            <input
-              className="text-input"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. bags are at the gate"
-              maxLength={250}
-            />
-            <button type="submit" disabled={submitting}>
-              {submitting ? "Requesting..." : "Request pickup"}
-            </button>
-          </form>
-        </Panel>
-      </div>
-
-      <div className="hh-grid">
-        <Panel title="My pickups">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th><th>Waste</th><th>Scheduled</th><th>Status</th><th>Collector</th><th>Weight</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {pickups.slice(0, 10).map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.id}</td>
-                    <td>{wasteList(p.waste_types)}</td>
-                    <td>{fmtDateTime(p.scheduled_for)}</td>
-                    <td>
-                      <span className="badge" style={{ background: STATUS_COLORS[p.status] }}>
-                        {STATUS_LABELS[p.status] || p.status}
-                      </span>
-                    </td>
-                    <td>{p.collector_name || "-"}</td>
-                    <td>{p.collection ? `${p.collection.weight_kg} kg` : "-"}</td>
-                    <td>
-                      {p.status === "requested" || p.status === "assigned" ? (
-                        <button className="ghost small" onClick={() => cancel(p)}>Cancel</button>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-                {!pickups.length ? (
-                  <tr><td colSpan={7} className="muted">No pickups yet. Request your first one above.</td></tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-
         <Panel title="Reward points history">
           <p className="muted" style={{ marginTop: 0 }}>
             Earned {fmt(balance?.total_earned ?? 0)} {"\u00B7"} Used {fmt(balance?.total_redeemed ?? 0)}
@@ -469,6 +490,42 @@ export default function HouseholdView({ user, onLogout }) {
           )}
         </Panel>
       </div>
+
+      <Panel title="My pickups">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>Waste</th><th>Scheduled</th><th>Status</th><th>Collector</th><th>Weight</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {pickups.slice(0, 10).map((p) => (
+                <tr key={p.id}>
+                  <td>{p.id}</td>
+                  <td>{wasteList(p.waste_types)}</td>
+                  <td>{fmtDateTime(p.scheduled_for)}</td>
+                  <td>
+                    <span className="badge" style={{ background: STATUS_COLORS[p.status] }}>
+                      {STATUS_LABELS[p.status] || p.status}
+                    </span>
+                  </td>
+                  <td>{p.collector_name || "-"}</td>
+                  <td>{p.collection ? `${p.collection.weight_kg} kg` : "-"}</td>
+                  <td>
+                    {p.status === "requested" || p.status === "assigned" ? (
+                      <button className="ghost small" onClick={() => cancel(p)}>Cancel</button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+              {!pickups.length ? (
+                <tr><td colSpan={7} className="muted">No pickups yet. Request your first one above.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
 
       <div className="hh-grid">
         <Panel title="Report illegal dumping">
@@ -528,106 +585,164 @@ export default function HouseholdView({ user, onLogout }) {
         </Panel>
       </div>
 
-      <div className="hh-grid">
-        <Panel title="Account settings">
-          <form onSubmit={saveProfile}>
-            {profileMsg ? (
-              <div className={profileMsg.kind === "ok" ? "notice ok" : "notice error"}>{profileMsg.text}</div>
-            ) : null}
-            <span className="form-label">Name</span>
-            <input
-              className="text-input"
-              value={profile.name}
-              onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-              required
-            />
-            <span className="form-label">Email</span>
-            <input className="text-input" value={me?.email || "Not set"} disabled />
-            <p className="muted" style={{ marginTop: -8 }}>
-              Sign-in method: {me?.auth_provider === "google" ? "Google account" : "Email or phone + password"}
-            </p>
-            <span className="form-label">Zone / ward</span>
-            <input
-              className="text-input"
-              value={profile.zone}
-              onChange={(e) => setProfile({ ...profile, zone: e.target.value })}
-            />
-            <span className="form-label">Home address</span>
-            <input
-              className="text-input"
-              value={profile.address}
-              onChange={(e) => setProfile({ ...profile, address: e.target.value })}
-            />
-            <div className="field-row">
-              <label>
-                Latitude
-                <input
-                  type="number"
-                  step="any"
-                  value={profile.latitude}
-                  onChange={(e) => setProfile({ ...profile, latitude: e.target.value })}
-                />
-              </label>
-              <label>
-                Longitude
-                <input
-                  type="number"
-                  step="any"
-                  value={profile.longitude}
-                  onChange={(e) => setProfile({ ...profile, longitude: e.target.value })}
-                />
-              </label>
-            </div>
-            <p className="muted">Coordinates are used as a fallback when you report dumping.</p>
-            <button type="submit" disabled={profileBusy}>
-              {profileBusy ? "Saving..." : "Save profile"}
-            </button>
-          </form>
-        </Panel>
+      <footer className="site-footer">
+        <div className="footer-inner">
+          <div className="footer-contact">
+            <a href="mailto:support@smartwaste.city">support@smartwaste.city</a>
+            <a href="tel:+254700000000">+254 700 000 000</a>
+            <span>Monday to Saturday, 7:00 - 18:00</span>
+          </div>
+        </div>
+      </footer>
 
-        <Panel title="Password">
-          <form onSubmit={savePassword}>
-            {pwMsg ? (
-              <div className={pwMsg.kind === "ok" ? "notice ok" : "notice error"}>{pwMsg.text}</div>
-            ) : null}
-            <p className="muted" style={{ marginTop: 0 }}>
-              Google and USSD accounts can set a password here to also sign in with email and password.
-              Leave "Current password" blank if you have never set one.
-            </p>
-            <span className="form-label">Current password</span>
-            <input
-              className="text-input"
-              type="password"
-              value={pw.current}
-              onChange={(e) => setPw({ ...pw, current: e.target.value })}
-              autoComplete="current-password"
-            />
-            <span className="form-label">New password</span>
-            <input
-              className="text-input"
-              type="password"
-              value={pw.next}
-              onChange={(e) => setPw({ ...pw, next: e.target.value })}
-              autoComplete="new-password"
-              minLength={6}
-              required
-            />
-            <span className="form-label">Confirm new password</span>
-            <input
-              className="text-input"
-              type="password"
-              value={pw.confirm}
-              onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
-              autoComplete="new-password"
-              minLength={6}
-              required
-            />
-            <button type="submit" disabled={pwBusy || !pw.next}>
-              {pwBusy ? "Updating..." : "Update password"}
-            </button>
-          </form>
-        </Panel>
-      </div>
+      {accountOpen ? (
+        <div className="account-overlay" onClick={() => setAccountOpen(false)}>
+          <aside
+            className="account-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Account settings"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="account-head">
+              <span className="avatar-lg">{avatarText}</span>
+              <div className="account-id">
+                <strong>{displayName}</strong>
+                <span className="muted">{me?.email || me?.phone || "Smart Waste household"}</span>
+              </div>
+              <button
+                className="account-close"
+                type="button"
+                onClick={() => setAccountOpen(false)}
+                aria-label="Close account settings"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="account-tabs" role="tablist" aria-label="Account settings sections">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={accountTab === "profile"}
+                className={accountTab === "profile" ? "on" : ""}
+                onClick={() => setAccountTab("profile")}
+              >
+                Profile
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={accountTab === "password"}
+                className={accountTab === "password" ? "on" : ""}
+                onClick={() => setAccountTab("password")}
+              >
+                Password
+              </button>
+            </div>
+            <div className="account-body">
+              {accountTab === "profile" ? (
+                <form onSubmit={saveProfile}>
+                  {profileMsg ? (
+                    <div className={profileMsg.kind === "ok" ? "notice ok" : "notice error"}>{profileMsg.text}</div>
+                  ) : null}
+                  <span className="form-label">Name</span>
+                  <input
+                    className="text-input"
+                    value={profile.name}
+                    onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+                    required
+                  />
+                  <span className="form-label">Email</span>
+                  <input className="text-input" value={me?.email || "Not set"} disabled />
+                  <p className="muted" style={{ marginTop: -8 }}>
+                    Sign-in method: {me?.auth_provider === "google" ? "Google account" : "Email or phone + password"}
+                  </p>
+                  <span className="form-label">Zone / ward</span>
+                  <input
+                    className="text-input"
+                    value={profile.zone}
+                    onChange={(e) => setProfile({ ...profile, zone: e.target.value })}
+                  />
+                  <span className="form-label">Home address</span>
+                  <input
+                    className="text-input"
+                    value={profile.address}
+                    onChange={(e) => setProfile({ ...profile, address: e.target.value })}
+                  />
+                  <div className="field-row">
+                    <label>
+                      Latitude
+                      <input
+                        type="number"
+                        step="any"
+                        value={profile.latitude}
+                        onChange={(e) => setProfile({ ...profile, latitude: e.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Longitude
+                      <input
+                        type="number"
+                        step="any"
+                        value={profile.longitude}
+                        onChange={(e) => setProfile({ ...profile, longitude: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                  <p className="muted">Coordinates are used as a fallback when you report dumping.</p>
+                  <button type="submit" disabled={profileBusy}>
+                    {profileBusy ? "Saving..." : "Save profile"}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={savePassword}>
+                  {pwMsg ? (
+                    <div className={pwMsg.kind === "ok" ? "notice ok" : "notice error"}>{pwMsg.text}</div>
+                  ) : null}
+                  <p className="muted" style={{ marginTop: 0 }}>
+                    Google and USSD accounts can set a password here to also sign in with email and password.
+                    Leave "Current password" blank if you have never set one.
+                  </p>
+                  <span className="form-label">Current password</span>
+                  <input
+                    className="text-input"
+                    type="password"
+                    value={pw.current}
+                    onChange={(e) => setPw({ ...pw, current: e.target.value })}
+                    autoComplete="current-password"
+                  />
+                  <span className="form-label">New password</span>
+                  <input
+                    className="text-input"
+                    type="password"
+                    value={pw.next}
+                    onChange={(e) => setPw({ ...pw, next: e.target.value })}
+                    autoComplete="new-password"
+                    minLength={6}
+                    required
+                  />
+                  <span className="form-label">Confirm new password</span>
+                  <input
+                    className="text-input"
+                    type="password"
+                    value={pw.confirm}
+                    onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
+                    autoComplete="new-password"
+                    minLength={6}
+                    required
+                  />
+                  <button type="submit" disabled={pwBusy || !pw.next}>
+                    {pwBusy ? "Updating..." : "Update password"}
+                  </button>
+                </form>
+              )}
+            </div>
+            <div className="account-foot">
+              <button type="button" className="ghost" onClick={onLogout}>Log out</button>
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </div>
   );
 }
