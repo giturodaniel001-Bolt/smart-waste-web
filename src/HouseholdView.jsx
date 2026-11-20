@@ -603,7 +603,12 @@ export default function HouseholdView({ user, onLogout }) {
             reports.slice(0, 10).map((r) => (
               <div className="report-row" key={r.id}>
                 {r.photo_url ? (
-                  <img className="thumb" src={r.photo_url} alt="Dumping report" />
+                  <img
+                    className="thumb"
+                    src={r.photo_url}
+                    alt="Dumping report"
+                    onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
+                  />
                 ) : (
                   <div className="thumb thumb-empty" />
                 )}

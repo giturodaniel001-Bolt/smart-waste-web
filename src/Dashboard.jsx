@@ -84,6 +84,16 @@ function Panel({ title, subtitle, action, children }) {
   );
 }
 
+function ReportPhoto({ url }) {
+  const [failed, setFailed] = useState(false);
+  if (!url || failed) return <div className="triage-photo-empty">No photo</div>;
+  return (
+    <a href={url} target="_blank" rel="noreferrer">
+      <img src={url} alt="Dumping report" onError={() => setFailed(true)} />
+    </a>
+  );
+}
+
 function FilterChips({ options, value, onChange }) {
   return (
     <div className="filter-chips" role="group" aria-label="Filter">
@@ -369,13 +379,7 @@ export default function Dashboard({ user, onLogout }) {
               return (
                 <article className="triage-card" key={r.id}>
                   <div className="triage-photo">
-                    {r.photo_url ? (
-                      <a href={r.photo_url} target="_blank" rel="noreferrer">
-                        <img src={r.photo_url} alt="Dumping report" />
-                      </a>
-                    ) : (
-                      <div className="triage-photo-empty">No photo</div>
-                    )}
+                    <ReportPhoto url={r.photo_url} />
                     <span className="badge triage-badge" style={{ background: REPORT_STATUS_COLORS[r.status] }}>
                       {REPORT_STATUS_LABELS[r.status] || r.status}
                     </span>
